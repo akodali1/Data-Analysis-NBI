@@ -146,7 +146,7 @@ def calc_f_statistic(data, grouping_var, dependent_var):
 def stratified_bootstrap_anova(data,
                                grouping_var,
                                dependent_var,
-                               n_bootstrap=12000):
+                               n_bootstrap):
 
     # Create a list of strata based on the grouping variable
     strata = data.groupby(grouping_var).apply(lambda x: x.index.values).tolist()
@@ -258,6 +258,66 @@ def compute_rank_correlation(feature_strata_results, stratas):
     # Print the crosstabulation table
     return rank_cross_tab, pvalue_cross_tab
 
+
+def convergence_checker(convergence_results_list, iterations):
+    """
+    Calculate the Spearman rank correlation co-efficient
+
+    Args:
+        - convergence_results_list: A list of dataframes 
+
+    Return:
+        - corr: Co-efficient
+        - p-value
+    """
+    iteration_1 = []
+    iteration_2 = []
+    
+    #p_values = []
+
+    len_conv_results = len(convergence_results_list)
+
+    #for index_i in range(len_conv_results):
+        #for index_j in range(len_conv_results):
+    df1 = convergence_results_list[0]
+    df2 = convergence_results_list[1]
+    eta_sq_1 = df1.index
+    eta_sq_2 = df2.index
+    corr, pvalue =  spearmanr(eta_sq_1, eta_sq_2)
+
+            #iteration_1.append(iterations[index_i])
+            #iteration_2.append(iterations[index_j])
+
+    rank_coeffs=round(corr, 2)
+            #p_values.append(round(pvalue, 2))
+    
+
+
+    ## Create a sample DataFrame
+    #datatable = {'iteration_1': iteration_1,
+    #            'iteration_2': iteration_2,
+    #            'rank_coeffs': rank_coeffs}#,
+    #            #'p_values': p_values}
+    #data = pd.DataFrame(datatable)
+#
+#
+    ## Create a crosstabulation table of stratas and rank_coeff
+    #rank_cross_tab = pd.pivot_table(data,
+    #                    values='rank_coeffs',
+    #                    index=data['iteration_1'],
+    #                    columns=data['iteration_2'],
+    #                    aggfunc='mean')
+
+    # Create a crosstabulation table of stratas and p-value
+    #value_cross_tab = pd.pivot_table(data,
+    #                    values='p_values',
+    #                    index=data['feature1'],
+    #                    columns=data['feature2'],
+    #                    aggfunc='mean')
+
+    # Print the crosstabulation table
+    return rank_coeffs
+
 def main():
     """
     Driver function
@@ -268,7 +328,7 @@ def main():
     df = read_clean_data(filename)
 
     # Define stratas, columns, and intervention
-    stratas = ['countyCode', 'urbanization', 'regions']
+    stratas = ['regions']#, 'urbanization', 'countyCode']
 
     # Features
     values = [
@@ -286,48 +346,69 @@ def main():
     ]
 
     group = 'deckNumberIntervention'
-    feature_strata_results = []
-
-    # Prepare dataset for each strata
-    for strata in stratas:
-        features = []
-        p_values = []
-        effect_sizes = []
-
-        for value in values:
-            data = prepare_data(df,
-                            stratify_by=strata,
-                            group=group,
-                            value=value)
-
-            # Perform ANOVA 
-            pvalue, eta = stratified_bootstrap_anova(data,
-                                              grouping_var=group,
-                                              dependent_var=value,
-                                              n_bootstrap=12000)
-
-            features.append(value)
-            p_values.append(pvalue)
-            effect_sizes.append(eta)
-
-        # Create a dataframe to save results per strata
-        results_df = pd.DataFrame({'feature': features,
-                                   'p_value': p_values,
-                                   'effect_size': effect_sizes})
-
-        # Sort by two columns: p_value and effect_size
-        sorted_df = results_df.sort_values(['p_value', 'effect_size'],
-                                   ascending=[True, False])
-
-        # Append all dataframes 
-        feature_strata_results.append(sorted_df)
-
-    print(feature_strata_results)
-
-    # Compute rank correlation
-    ranks, pvalues = compute_rank_correlation(feature_strata_results, stratas)
-    sns_heatmap(ranks)
-    sns_heatmap(pvalues)
+    iteration_start=50000
+    iteration_size=1000
+    while True:
+        convergence_results_list = []
+        iterations=[iteration_start,iteration_start+iteration_size]
+        for iteration in iterations:
+            feature_strata_results = []
+            # Prepare dataset for each strata
+            for strata in stratas:
+                features = []
+                p_values = []
+                effect_sizes = []
+        
+                for value in values:
+                    data = prepare_data(df,
+                                    stratify_by=strata,
+                                    group=group,
+                                    value=value)
+        
+                    # Perform ANOVA 
+                    pvalue, eta = stratified_bootstrap_anova(data,
+                                                      grouping_var=group,
+                                                      dependent_var=value,
+                                                      n_bootstrap=iteration)
+        
+                    features.append(value)
+                    p_values.append(pvalue)
+                    effect_sizes.append(eta)
+        
+                # Create a dataframe to save results per strata
+                results_df = pd.DataFrame({'feature': features,
+                                           'p_value': p_values,
+                                           'effect_size': effect_sizes})
+        
+                # Sort by two columns: p_value and effect_size
+                sorted_df = results_df.sort_values(['p_value', 'effect_size'],
+                                           ascending=[True, False])
+        
+                # Append all dataframes 
+                feature_strata_results.append(sorted_df)
+        
+            # Compute rank correlation
+            #ranks, pvalues = compute_rank_correlation(feature_strata_results, stratas)
+            #sns_heatmap(ranks)
+            #sns_heatmap(pvalues)
+            convergence_results = pd.concat(feature_strata_results, axis=0)
+            convergence_results_list.append(convergence_results)
+            print('Iteration running :',iteration)
+            
+        # Compute rank correlation
+        
+        rank= convergence_checker(convergence_results_list, iterations)
+        print('The convergence ratio is: ',rank)
+        
+        # Checking convergence
+        if rank >= 0.95:
+            print("Convergence occured at :",iteration_start)
+            break;
+        else:
+            print("Convergence didn't occur at :",iteration_start)
+            print("\n")
+            iteration_start=iteration_start+2*iteration_size
+        
 
 if __name__=='__main__':
     main()

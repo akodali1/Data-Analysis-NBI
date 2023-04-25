@@ -110,9 +110,15 @@ def prepare_data(df, stratify_by, group, value):
        - sampled_df: stratified sample data by group and value
     """
 
-    # Define a function to sample 5 records from each group
+    # Define a function to sample 40 records from each region
     def sample_group(group):
-        return group.sample(n=5, replace=True)
+        
+        repaired_rows = group[group['deckNumberIntervention'] == 0.0]
+        repaired_sample = repaired_rows.sample(n=20)
+        non_repaired_rows = group[group['deckNumberIntervention'] == 1.0]
+        non_repaired_sample = non_repaired_rows.sample(n=20,replace=True)
+        group = pd.concat([repaired_sample,non_repaired_sample],axis=0)
+        return group
 
     # Apply the function to each group and combine the results
     sampled_df = df.groupby(stratify_by, group_keys=False).apply(sample_group)
@@ -149,7 +155,7 @@ def stratified_bootstrap_anova(data,
                                n_bootstrap):
 
     # Create a list of strata based on the grouping variable
-    strata = data.groupby(grouping_var).apply(lambda x: x.index.values).tolist()
+    #strata = data.groupby(grouping_var).apply(lambda x: x.index.values).tolist() 
 
     # Define a function to calculate the ANOVA F-statistic
     def anova_func(data, group=grouping_var, value=dependent_var):
@@ -185,9 +191,10 @@ def stratified_bootstrap_anova(data,
     f_statistics = []
     eta_squareds = []
     for i in range(n_bootstrap):
-        indices = [np.random.choice(stratum, size=200) for stratum in strata]
-        indices = np.concatenate(indices)
-        sampled_data = data.loc[indices]
+        #indices = [np.random.choice(stratum, size=320) for stratum in strata]
+        #indices = np.concatenate(indices)
+        #sampled_data = data.loc[indices]
+        sampled_data = data
         f_stat, eta_sq = anova_func(sampled_data)
         f_statistics.append(f_stat)
         eta_squareds.append(eta_sq)
@@ -326,6 +333,7 @@ def main():
 
     # Read and clean dataset
     df = read_clean_data(filename)
+    
 
     # Define stratas, columns, and intervention
     stratas = ['regions']#, 'urbanization', 'countyCode']
@@ -346,8 +354,11 @@ def main():
     ]
 
     group = 'deckNumberIntervention'
-    iteration_start=50000
+    iteration_start=25000
     iteration_size=1000
+    
+    ran=[]
+    itr=[]
     while True:
         convergence_results_list = []
         iterations=[iteration_start,iteration_start+iteration_size]
@@ -398,7 +409,11 @@ def main():
         # Compute rank correlation
         
         rank= convergence_checker(convergence_results_list, iterations)
-        print('The convergence ratio is: ',rank)
+        print('The correlation is: ',rank)
+        
+        #storing test values to create a Line chart
+        ran.append(rank)
+        itr.append(iteration_start)
         
         # Checking convergence
         if rank >= 0.95:

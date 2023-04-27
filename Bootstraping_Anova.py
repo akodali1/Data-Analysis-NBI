@@ -1,14 +1,18 @@
 # Importing required libraries
 import pandas as pd
-import pingouin as pg
 import numpy as np
 import math
 import numpy as np
 import seaborn as sns
 from scipy.stats import f
 from scipy.stats import spearmanr
+from collections import Counter
+from tqdm import tqdm
 import matplotlib.pyplot as plt
+import plotly.graph_objs as go
+import plotly.io as pio
 import warnings
+
 warnings.filterwarnings('ignore')
 
 def sns_heatmap(table):
@@ -80,6 +84,7 @@ def read_clean_data(filename):
 
     for i in counties:
         df = df[df.countyCode != i]
+
     df = df[df.owner != 3 ]
     df = df[df.owner != 25]
     df = df[df.owner !=-1]
@@ -111,13 +116,18 @@ def prepare_data(df, stratify_by, group, value):
     """
 
     # Define a function to sample 40 records from each region
-    def sample_group(group):
-        
+    def sample_group(group, s_no=25):
+
+        # Sampling repaired bridges
         repaired_rows = group[group['deckNumberIntervention'] == 0.0]
-        repaired_sample = repaired_rows.sample(n=20)
+        repaired_sample = repaired_rows.sample(n=s_no)
+
+        # Sampling non-repaird bridges 
         non_repaired_rows = group[group['deckNumberIntervention'] == 1.0]
-        non_repaired_sample = non_repaired_rows.sample(n=20,replace=True)
-        group = pd.concat([repaired_sample,non_repaired_sample],axis=0)
+        non_repaired_sample = non_repaired_rows.sample(n=s_no,replace=True)
+
+        # Concatenate
+        group = pd.concat([repaired_sample,non_repaired_sample], axis=0)
         return group
 
     # Apply the function to each group and combine the results
@@ -190,6 +200,7 @@ def stratified_bootstrap_anova(data,
     # Perform the bootstrap ANOVA with stratification
     f_statistics = []
     eta_squareds = []
+
     for i in range(n_bootstrap):
         #indices = [np.random.choice(stratum, size=320) for stratum in strata]
         #indices = np.concatenate(indices)
@@ -271,7 +282,7 @@ def convergence_checker(convergence_results_list, iterations):
     Calculate the Spearman rank correlation co-efficient
 
     Args:
-        - convergence_results_list: A list of dataframes 
+        - convergence_results_list: A list of dataframes
 
     Return:
         - corr: Co-efficient
@@ -279,9 +290,8 @@ def convergence_checker(convergence_results_list, iterations):
     """
     iteration_1 = []
     iteration_2 = []
-    
-    #p_values = []
 
+    #p_values = []
     len_conv_results = len(convergence_results_list)
 
     #for index_i in range(len_conv_results):
@@ -291,13 +301,13 @@ def convergence_checker(convergence_results_list, iterations):
     eta_sq_1 = df1.index
     eta_sq_2 = df2.index
     corr, pvalue =  spearmanr(eta_sq_1, eta_sq_2)
+    rank_coeffs = round(corr, 2)
 
             #iteration_1.append(iterations[index_i])
             #iteration_2.append(iterations[index_j])
 
-    rank_coeffs=round(corr, 2)
             #p_values.append(round(pvalue, 2))
-    
+
 
 
     ## Create a sample DataFrame
@@ -325,6 +335,40 @@ def convergence_checker(convergence_results_list, iterations):
     # Print the crosstabulation table
     return rank_coeffs
 
+def run_process(stratas, values, group, df, n=1000):
+    """
+    Description:
+
+    """
+    for strata in stratas:
+        features = []
+        p_values = []
+        effect_sizes = []
+
+        for value in values:
+            data = prepare_data(df,
+                            stratify_by=strata,
+                            group=group,
+                            value=value)
+
+            # Perform ANOVA 
+            pvalue, eta = stratified_bootstrap_anova(data,
+                                              grouping_var=group,
+                                              dependent_var=value,
+                                              n_bootstrap=n)
+
+            features.append(value)
+            p_values.append(pvalue)
+            effect_sizes.append(eta)
+
+        # Create a dataframe to save results per strata
+        results_df = pd.DataFrame({'feature': features,
+                                   'p_value': p_values,
+                                   'effect_size': effect_sizes})
+
+        return results_df
+
+
 def main():
     """
     Driver function
@@ -333,10 +377,10 @@ def main():
 
     # Read and clean dataset
     df = read_clean_data(filename)
-    
 
     # Define stratas, columns, and intervention
-    stratas = ['regions']#, 'urbanization', 'countyCode']
+    stratas = ['regions']
+    #stratas = ['regions', 'urbanization', 'countyCode']
 
     # Features
     values = [
@@ -354,76 +398,118 @@ def main():
     ]
 
     group = 'deckNumberIntervention'
-    iteration_start=25000
-    iteration_size=1000
-    
-    ran=[]
-    itr=[]
-    while True:
-        convergence_results_list = []
-        iterations=[iteration_start,iteration_start+iteration_size]
-        for iteration in iterations:
-            feature_strata_results = []
-            # Prepare dataset for each strata
-            for strata in stratas:
-                features = []
-                p_values = []
-                effect_sizes = []
-        
-                for value in values:
-                    data = prepare_data(df,
-                                    stratify_by=strata,
-                                    group=group,
-                                    value=value)
-        
-                    # Perform ANOVA 
-                    pvalue, eta = stratified_bootstrap_anova(data,
-                                                      grouping_var=group,
-                                                      dependent_var=value,
-                                                      n_bootstrap=iteration)
-        
-                    features.append(value)
-                    p_values.append(pvalue)
-                    effect_sizes.append(eta)
-        
-                # Create a dataframe to save results per strata
-                results_df = pd.DataFrame({'feature': features,
-                                           'p_value': p_values,
-                                           'effect_size': effect_sizes})
-        
-                # Sort by two columns: p_value and effect_size
-                sorted_df = results_df.sort_values(['p_value', 'effect_size'],
-                                           ascending=[True, False])
-        
-                # Append all dataframes 
-                feature_strata_results.append(sorted_df)
-        
-            # Compute rank correlation
-            #ranks, pvalues = compute_rank_correlation(feature_strata_results, stratas)
-            #sns_heatmap(ranks)
-            #sns_heatmap(pvalues)
-            convergence_results = pd.concat(feature_strata_results, axis=0)
-            convergence_results_list.append(convergence_results)
-            print('Iteration running :',iteration)
-            
-        # Compute rank correlation
-        
-        rank= convergence_checker(convergence_results_list, iterations)
-        print('The correlation is: ',rank)
-        
-        #storing test values to create a Line chart
-        ran.append(rank)
-        itr.append(iteration_start)
-        
-        # Checking convergence
-        if rank >= 0.95:
-            print("Convergence occured at :",iteration_start)
-            break;
-        else:
-            print("Convergence didn't occur at :",iteration_start)
-            print("\n")
-            iteration_start=iteration_start+2*iteration_size
-        
+
+    # Set start and end
+    start_n = 1000
+    end_n = 10000
+
+    # Set interval
+    interval = 1000
+
+    # 
+    bootstrap_results = []
+
+    # Prepare dataset for each strata
+    print("Running for n:", 25)
+    for n in range(start_n, end_n, interval):
+        results_df = run_process(stratas,
+                             values,
+                             group,
+                             df,
+                             n=n)
+        print("printing for n:", n)
+        bootstrap_results.append(results_df)
+
+    # Compute spearman correlation between the previous and current results
+    bootstrap_n_list = []
+    rank_coeffs_list = []
+    for i in range(len(bootstrap_results) - 1):
+        # Get previous and current results
+        prev = bootstrap_results[i]
+        curr = bootstrap_results[i+1]
+
+        # Compare previous and current results
+        prev_index = prev.index
+        curr_index = curr.index
+        corr, pvalue =  spearmanr(prev_index, curr_index)
+
+        # Save spearmanr correlation coefficients
+        rank_coeffs = round(corr, 2)
+        bootstrap_n_list.append(i)
+        rank_coeffs_list.append(rank_coeffs)
+
+    print(rank_coeffs_list)
+
+#    ran=[]
+#    itr=[]
+#    while True:
+#        print("Programming started")
+#        convergence_results_list = []
+#        iterations=[iteration_start,iteration_start+iteration_size]
+#        for iteration in iterations:
+#            feature_strata_results = []
+#
+#            # Prepare dataset for each strata
+#            for strata in stratas:
+#                features = []
+#                p_values = []
+#                effect_sizes = []
+#
+#                for value in values:
+#                    data = prepare_data(df,
+#                                    stratify_by=strata,
+#                                    group=group,
+#                                    value=value)
+#
+#                    # Perform ANOVA 
+#                    pvalue, eta = stratified_bootstrap_anova(data,
+#                                                      grouping_var=group,
+#                                                      dependent_var=value,
+#                                                      n_bootstrap=iteration)
+#
+#                    features.append(value)
+#                    p_values.append(pvalue)
+#                    effect_sizes.append(eta)
+#
+#                # Create a dataframe to save results per strata
+#                results_df = pd.DataFrame({'feature': features,
+#                                           'p_value': p_values,
+#                                           'effect_size': effect_sizes})
+#
+#                print("printing results")
+#                print(results_df)
+#                # Sort by two columns: p_value and effect_size
+#                sorted_df = results_df.sort_values(['p_value', 'effect_size'],
+#                                           ascending=[True, False])
+#
+#                # Append all dataframes 
+#                feature_strata_results.append(sorted_df)
+#
+#            # Compute rank correlation
+#            #ranks, pvalues = compute_rank_correlation(feature_strata_results, stratas)
+#            #sns_heatmap(ranks)
+#            #sns_heatmap(pvalues)
+#            convergence_results = pd.concat(feature_strata_results, axis=0)
+#            convergence_results_list.append(convergence_results)
+#            print('Iteration running :',iteration)
+#
+#        # Compute rank correlation
+#        rank= convergence_checker(convergence_results_list, iterations)
+#        print('The correlation is: ',rank)
+#
+#        #storing test values to create a Line chart
+#        ran.append(rank)
+#        itr.append(iteration_start)
+#
+#        # Checking convergence
+#        if rank >= 0.95:
+#            print("Convergence occured at :",iteration_start)
+#            break;
+#        else:
+#            print("Convergence didn't occur at :",iteration_start)
+#            print("\n")
+#            iteration_start=iteration_start+2*iteration_size
+#
 
 if __name__=='__main__':
     main()

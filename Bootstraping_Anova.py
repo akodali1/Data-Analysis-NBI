@@ -338,7 +338,7 @@ def convergence_checker(convergence_results_list, iterations):
 def run_process(stratas, values, group, df, n=1000):
     """
     Description:
-
+        Runs through the bootstrapping process for all stratas, values, and group
     """
     for strata in stratas:
         features = []
@@ -368,6 +368,54 @@ def run_process(stratas, values, group, df, n=1000):
 
         return results_df
 
+def compute_list_spearman_ranking(bootstrap_n_list, bootstrap_results):
+    # Initialize the spearmanr coeff list
+    rank_coeffs_list = []
+
+    for i in range(len(bootstrap_results) - 1):
+
+        # Get previous and current results
+        prev = bootstrap_results[i].index
+        curr = bootstrap_results[i+1].index
+
+        # Compute spearman ranking correlation
+        corr, pvalue =  spearmanr(prev, curr)
+
+        # Save spearmanr correlation coefficients
+        rank_coeffs = round(corr, 2)
+        rank_coeffs_list.append(rank_coeffs)
+
+    return bootstrap_n_list, rank_coeffs_list
+
+def plot_line_chart(bootstrap_n_list, rank_coeffs):
+    """
+    Plot line chart to present X-axis: spearman r coefficients
+
+    Args:
+        X-axis:
+        Y-axis:
+
+    Returns:
+        Line graph that summarizes the trend
+        in spearman ranking coeffs with respect
+        to bootstrap_n_list
+    """
+    # Example data
+    df = pd.DataFrame({'N': bootstrap_n_list, 'Spearman rank coeffs': rank_coeffs})
+
+    # Create a line trace
+    trace = go.Scatter(x=df['N'], y=df['Spearman rank coeffs'], mode='lines')
+
+    # Create a layout
+    layout = go.Layout(title='Bootstrap N Vs. Spearman rank coefficients',
+                       xaxis=dict(title='Bootstrap N'),
+                       yaxis=dict(title='Spearman rank coeffs'))
+
+    # Create a figure
+    fig = go.Figure(data=[trace], layout=layout)
+
+    # Show the figure
+    pio.show(fig)
 
 def main():
     """
@@ -406,11 +454,12 @@ def main():
     # Set interval
     interval = 1000
 
-    # 
+    # Set
     bootstrap_results = []
 
     # Prepare dataset for each strata
     print("Running for n:", 25)
+    bootstrap_n_list = []
     for n in range(start_n, end_n, interval):
         results_df = run_process(stratas,
                              values,
@@ -418,27 +467,11 @@ def main():
                              df,
                              n=n)
         print("printing for n:", n)
+        bootstrap_n_list.append(n)
         bootstrap_results.append(results_df)
 
-    # Compute spearman correlation between the previous and current results
-    bootstrap_n_list = []
-    rank_coeffs_list = []
-    for i in range(len(bootstrap_results) - 1):
-        # Get previous and current results
-        prev = bootstrap_results[i]
-        curr = bootstrap_results[i+1]
-
-        # Compare previous and current results
-        prev_index = prev.index
-        curr_index = curr.index
-        corr, pvalue =  spearmanr(prev_index, curr_index)
-
-        # Save spearmanr correlation coefficients
-        rank_coeffs = round(corr, 2)
-        bootstrap_n_list.append(i)
-        rank_coeffs_list.append(rank_coeffs)
-
-    print(rank_coeffs_list)
+    bootstrap_n_list,  ranks_coeffs_list = compute_list_spearman_ranking(bootstrap_n_list, bootstrap_results)
+    plot_line_chart(bootstrap_n_list[1:], ranks_coeffs_list)
 
 #    ran=[]
 #    itr=[]

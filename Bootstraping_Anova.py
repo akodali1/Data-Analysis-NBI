@@ -427,7 +427,8 @@ def main():
     df = read_clean_data(filename)
 
     # Define stratas, columns, and intervention
-    stratas = ['regions']
+    #stratas = ['regions']
+    stratas = ['countyCode']
     #stratas = ['regions', 'urbanization', 'countyCode']
 
     # Features
